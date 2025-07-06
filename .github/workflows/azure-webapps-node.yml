@@ -144,25 +144,25 @@ jobs:
           NGINX_CONFIG="
             server {
                 listen 80;
-                server_name $EC2_HOST; # Use your EC2 DNS or domain name
+                server_name $EC2_HOST; # This one is a shell variable, so $EC2_HOST is correct
 
                 location / {
                     proxy_pass http://localhost:3000; # NestJS app runs on port 3000
                     proxy_http_version 1.1;
-                    proxy_set_header Upgrade \$http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host \$host;
-                    proxy_cache_bypass \$http_upgrade;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto \$scheme;
+                    proxy_set_header Upgrade $$http_upgrade; # Corrected: $$ for Nginx internal variable
+                    proxy_set_header Connection 'upgrade'; # Already correct
+                    proxy_set_header Host $$host; # Corrected
+                    proxy_cache_bypass $$http_upgrade; # Corrected
+                    proxy_set_header X-Real-IP $$remote_addr; # Corrected
+                    proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for; # Corrected
+                    proxy_set_header X-Forwarded-Proto $$scheme; # Corrected
                 }
             }
           "
           # Transfer config to EC2 and reload Nginx
           # 'echo "$NGINX_CONFIG" | sudo tee ...' is used to write content with sudo privileges
           ssh -t "$EC2_USER"@"$EC2_HOST" "
-            echo \"$NGINX_CONFIG\" | sudo tee /etc/nginx/conf.d/jcg-quiz-api.conf > /dev/null; # <-- Updated config file name
+            echo \"$NGINX_CONFIG\" | sudo tee /etc/nginx/conf.d/jcg-quiz-api.conf > /dev/null;
             echo 'Nginx configuration written to /etc/nginx/conf.d/jcg-quiz-api.conf';
             sudo systemctl reload nginx; # Reload Nginx to apply new configuration
             echo 'Nginx reloaded to apply new config.';
