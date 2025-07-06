@@ -108,7 +108,7 @@ jobs:
             # injected via AWS Systems Manager Parameter Store or Secrets Manager
             # and accessed by your app, rather than directly in PM2 commands.
             # However, for direct passing as requested:
-            pm2 start dist/main.js --name ${APP_NAME} --interpreter node -- \
+            pm2 start main.js --name ${APP_NAME} --interpreter node -- \
               --env PORT=3000 \
               --env CORS_ORIGIN='${{ vars.CORS_ORIGIN || 'http://localhost:8080' }}' \
               --env API_PREFIX='${{ vars.API_PREFIX || 'api' }}' \
