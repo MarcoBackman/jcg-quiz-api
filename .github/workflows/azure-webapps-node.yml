@@ -45,9 +45,17 @@ jobs:
       - name: Deploy application files and manage with PM2
         # This step combines SSH commands for EC2 setup and local rsync for file transfer.
         run: |
-          # --- Remote commands executed on EC2 via SSH ---
-          ssh -t "$EC2_USER"@"$EC2_HOST" "
-            # --- Install rsync if not found (for Amazon Linux) ---
+          # Define common variables used locally and remotely
+          EC2_USER_VAL="ec2-user" # Directly define for local use
+          EC2_HOST_VAL="ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com"
+          
+          # --- Set the application directory name based on your project ---
+          APP_NAME="jcg-quiz-api" # <-- Updated to your repository name
+          REMOTE_APP_DIR="/home/${EC2_USER_VAL}/${APP_NAME}" # Path on EC2
+
+          # --- Step 1: Prepare EC2 environment (install rsync, create app directory, install pm2) ---
+          ssh -t "${EC2_USER_VAL}"@"${EC2_HOST_VAL}" "
+            # Ensure rsync is installed
             if ! command -v rsync &> /dev/null; then
               echo 'rsync not found on EC2, installing...';
               sudo yum install rsync -y;
@@ -55,12 +63,11 @@ jobs:
               echo 'rsync is already installed on EC2.';
             fi;
 
-            # --- Create application directory ---
-            APP_DIR='/home/$EC2_USER/nestjs-app';
-            mkdir -p \"$APP_DIR\";
-            echo \"Application directory created/ensured: $APP_DIR\";
+            # Create application directory (double quotes for variable expansion)
+            mkdir -p \"${REMOTE_APP_DIR}\";
+            echo \"Application directory created/ensured: ${REMOTE_APP_DIR}\";
 
-            # --- Install PM2 if not found ---
+            # Install PM2 if not found
             # Using npm install -g pm2 via SSH
             if ! command -v pm2 &> /dev/null; then
               echo 'PM2 not found on EC2, installing globally...';
@@ -71,76 +78,8 @@ jobs:
             else
               echo 'PM2 is already installed on EC2.';
             fi;
-
-            # --- Stop and delete existing PM2 process for clean restart ---
-            pm2 delete nestjs-app || true; # '|| true' prevents error if process doesn't exist
-
-            # --- Navigate to app directory for PM2 to find package.json and dist ---
-            cd \"$APP_DIR\";
-
-            # --- Start NestJS application with PM2 and environment variables ---
-            # Note: For security, sensitive keys like AI_API_KEY should ideally be
-            # injected via AWS Systems Manager Parameter Store or Secrets Manager
-            # and accessed by your app, rather than directly in PM2 commands.
-            # However, for direct passing as requested:
-            pm2 start dist/main.js --name nestjs-app --interpreter node -- \
-              --env PORT=3000 \
-              --env CORS_ORIGIN='${{ vars.CORS_ORIGIN || 'http://localhost:8080' }}' \
-              --env API_PREFIX='${{ vars.API_PREFIX || 'api' }}' \
-              --env AI_API_BASE_URL='${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}' \
-              --env AI_API_KEY='${{ secrets.AI_API_KEY }}' \
-              --env AI_AGENT='${{ vars.AI_AGENT || 'gemini-2.0-flash' }}';
-
-            # --- Save PM2 process list and configure startup on boot ---
-            pm2 save;
-            # This generates a systemd script to ensure PM2 processes restart after reboot
-            # Adjust the PATH if pm2 is not found by sudo, e.g., include ~/.nvm/.../bin
-            sudo env PATH=\$PATH:$(npm bin -g) pm2 startup systemd -u $EC2_USER --hp /home/$EC2_USER;
-
-            pm2 list; # List running PM2 processes to confirm NestJS app is running
           "
-          # --- Local rsync commands (from GitHub Actions runner to EC2) ---
-          # These commands run on the GitHub Actions runner, connecting to EC2 via SSH.
-          APP_DIR_REMOTE="/home/${EC2_USER}/nestjs-app" # Define target directory for rsync
-          
-          # -a: archive mode (preserves permissions, timestamps, etc.)
-          # -v: verbose
-          # -z: compress file data during transfer
-          # -e "ssh ...": specifies SSH as the remote shell. StrictHostKeyChecking=no bypasses prompt.
-          # --delete: deletes extraneous files from dest dir (useful for clean updates, syncs source and dest)
-          echo "Copying built NestJS dist/ folder..."
-          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./dist/ "$EC2_USER"@"$EC2_HOST":"$APP_DIR_REMOTE/dist/"
-          
-          echo "Copying package.json..."
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no" ./package.json "$EC2_USER"@"$EC2_HOST":"$APP_DIR_REMOTE/"
-          
-          echo "Copying package-lock.json..."
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no" ./package-lock.json "$EC2_USER"@"$EC2_HOST":"$APP_DIR_REMOTE/" # Or yarn.lock if applicable
-        env:
-          # Define EC2_USER and EC2_HOST directly in env for this step
-          EC2_USER: ec2-user # For Amazon Linux 2/2023
-          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com # Your EC2 DNS
-          # Default values for vars if they are not set (for safety)
-          CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'http://localhost:8080,http://example.com' }}
-          API_PREFIX: ${{ vars.API_PREFIX || 'api' }}
-          AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}
-          AI_AGENT: ${{ vars.AI_AGENT || 'gemini-2.0-flash' }}
 
-      - name: Configure Nginx as Reverse Proxy and Reload
-        # This step creates an Nginx config file on EC2 and reloads Nginx.
-        run: |
-          # Define Nginx configuration content for NestJS reverse proxy
-          NGINX_CONFIG="
-            server {
-                listen 80;
-                server_name $EC2_HOST; # Use your EC2 DNS or domain name
-
-                location / {
-                    proxy_pass http://localhost:3000; # NestJS app runs on port 3000
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade \$http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host \$host;
-                    proxy_cache_bypass \$http_upgrade;
-                    proxy_set_header X-Real-IP \$remote_addr;
-                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for
+          # --- Step 2: Copy built files from GitHub Actions runner to EC2 ---
+          # These rsync commands run *locally* on the GitHub Actions runner,
+          # connecting
