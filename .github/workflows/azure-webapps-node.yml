@@ -103,6 +103,8 @@ jobs:
             # Navigate to app directory where files were copied
             cd \"${REMOTE_APP_DIR}\";
 
+            npm install --production
+
             # Start NestJS application with PM2 and environment variables
             # Note: For security, sensitive keys like AI_API_KEY should ideally be
             # injected via AWS Systems Manager Parameter Store or Secrets Manager
