@@ -1,60 +1,145 @@
-name: Deploy to EC2 with PEM key
+name: Deploy NestJS to EC2
 
 on:
   push:
     branches:
-      - main
+      - main # Trigger deployment on pushes to the main branch
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # GitHub Actions runner environment
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # Checkout your repository code
 
       - name: Set up SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: webfactory/ssh-agent@v0.9.0 # Action to set up SSH agent with your private key
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # Use the SSH private key from GitHub Secrets
 
       - name: Add EC2 Host to known_hosts
-        # ALL these commands MUST be in the SAME 'run' block
-        # and the EC2_HOST variable must be available for this step.
+        # This step ensures the EC2 host's fingerprint is added to known_hosts
+        # to prevent SSH connection prompts in non-interactive environment.
         run: |
-          mkdir -p ~/.ssh
-          # Use the environment variable here
+          mkdir -p ~/.ssh # Create .ssh directory if it doesn't exist
+          # Use ssh-keyscan to fetch the host key securely.
+          # The -H flag ensures only the hostname is used in known_hosts entry.
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts # Set correct permissions for known_hosts file
         env:
-          # Define EC2_HOST here, or make sure it's a global var or job-level var
-          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com # Your EC2 DNS
+          EC2_HOST: ${{ vars.EC2_HOST }} # Use EC2_HOST from GitHub Repository Variables
 
-      - name: Connect to EC2 and execute deployment commands
-        # No -i ~/.ssh/id_rsa needed, agent handles it
-        # -t is important for sudo
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4 # Action to set up Node.js
+        with:
+          node-version: '20' # Specify your NestJS project's Node.js version
+
+      - name: Install NestJS dependencies
+        run: npm install # Install Node.js dependencies for your project
+
+      - name: Build NestJS project
+        run: npm run build # Build your NestJS application (creates the 'dist' folder)
+
+      - name: Deploy application files and setup PM2
+        # This step connects to EC2, installs rsync/pm2 if needed,
+        # copies the built NestJS app, and manages it with PM2.
         run: |
+          # SSH into EC2 instance and execute commands
           ssh -t "$EC2_USER"@"$EC2_HOST" "
-            # Use 'sudo su -' for example if you need to switch to root for specific commands
-            # Ensure paths are correct for your instance:
-            if [ -d '/var/www/html' ]; then
-              ls -l /var/www/html;
-            elif [ -d '/usr/share/nginx/html' ]; then
-              ls -l /usr/share/nginx/html;
+            # --- Install rsync if not found (for Amazon Linux) ---
+            if ! command -v rsync &> /dev/null; then
+              echo 'rsync not found on EC2, installing...';
+              sudo yum install rsync -y;
             else
-              echo 'Neither /var/www/html nor /usr/share/nginx/html found. Please check path.';
-              exit 1;
+              echo 'rsync is already installed on EC2.';
             fi;
 
-            # Ensure Nginx is installed and its service name is correct
-            if ! command -v nginx &> /dev/null; then
-              echo 'Nginx not found, attempting to install (Amazon Linux/RHEL/CentOS example)...';
-              sudo yum update -y && sudo yum install nginx -y;
-              sudo systemctl enable nginx;
+            # --- Create application directory ---
+            APP_DIR='/home/$EC2_USER/nestjs-app';
+            mkdir -p \"$APP_DIR\";
+            echo \"Application directory created/ensured: $APP_DIR\";
+
+            # --- Install PM2 if not found ---
+            if ! command -v pm2 &> /dev/null; then
+              echo 'PM2 not found on EC2, installing globally...';
+              npm install -g pm2;
+              echo 'PM2 installed.';
+            else
+              echo 'PM2 is already installed on EC2.';
             fi;
 
-            sudo systemctl restart nginx;
-            echo 'Nginx restart command sent.';
+            # --- Stop and delete existing PM2 process for clean restart ---
+            pm2 delete nestjs-app || true; # '|| true' prevents error if process doesn't exist
+
+            # --- Navigate to app directory for PM2 to find package.json and dist ---
+            cd \"$APP_DIR\";
+
+            # --- Start NestJS application with PM2 and environment variables ---
+            # Pass environment variables directly to PM2
+            pm2 start dist/main.js --name nestjs-app --interpreter node -- \
+              --port 3000 \
+              --env PORT=3000 \
+              --env CORS_ORIGIN='${{ vars.CORS_ORIGIN }}' \
+              --env API_PREFIX='${{ vars.API_PREFIX }}' \
+              --env AI_API_BASE_URL='${{ vars.AI_API_BASE_URL }}' \
+              --env AI_API_KEY='${{ secrets.AI_API_KEY }}' \
+              --env AI_AGENT='${{ vars.AI_AGENT }}';
+
+            # --- Save PM2 process list and configure startup on boot ---
+            # This generates a systemd script to ensure PM2 processes restart after reboot
+            pm2 save;
+            # The 'pm2 startup systemd' command might need sudo and the correct PATH.
+            # This line attempts to get the correct path for pm2 and execute startup.
+            # Adjust the path if your Node.js/npm installation is non-standard.
+            # A common path for nvm users might be /home/$EC2_USER/.nvm/versions/node/v<version>/bin/pm2
+            sudo env PATH=\$PATH:$(npm bin -g) pm2 startup systemd -u $EC2_USER --hp /home/$EC2_USER;
+
+            pm2 list; # List running PM2 processes to confirm NestJS app is running
+          "
+          # --- Use rsync to copy built files from GitHub Actions runner to EC2 ---
+          # -a: archive mode (preserves permissions, timestamps, etc.)
+          # -v: verbose
+          # -z: compress file data during transfer
+          # -e "ssh ...": specifies SSH as the remote shell
+          # --delete: deletes extraneous files from dest dir (useful for clean updates)
+          # Note: StrictHostKeyChecking=no is used here for rsync.
+          # If ssh-keyscan is reliable, you could try removing this for stronger security.
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./dist/ "$EC2_USER"@"$EC2_HOST":/home/$EC2_USER/nestjs-app/dist/
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./package.json "$EC2_USER"@"$EC2_HOST":/home/$EC2_USER/nestjs-app/
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./package-lock.json "$EC2_USER"@"$EC2_HOST":/home/$EC2_USER/nestjs-app/ # Or yarn.lock if applicable
+
+      - name: Configure Nginx as Reverse Proxy
+        # This step creates an Nginx config file on EC2 and reloads Nginx.
+        run: |
+          # Define Nginx configuration content
+          # This config listens on port 80 and proxies requests to your NestJS app on port 3000
+          NGINX_CONFIG="
+            server {
+                listen 80;
+                server_name ${{ vars.EC2_HOST }}; # Use your EC2 DNS or domain name
+
+                location / {
+                    proxy_pass http://localhost:3000; # NestJS app runs on port 3000
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade \$http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host \$host;
+                    proxy_cache_bypass \$http_upgrade;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+            }
+          "
+          # Transfer config to EC2 and reload Nginx
+          # 'echo "$NGINX_CONFIG" | sudo tee ...' is used to write content with sudo privileges
+          ssh -t "$EC2_USER"@"$EC2_HOST" "
+            echo \"$NGINX_CONFIG\" | sudo tee /etc/nginx/conf.d/nestjs.conf > /dev/null;
+            echo 'Nginx configuration written to /etc/nginx/conf.d/nestjs.conf';
+            sudo systemctl reload nginx; # Reload Nginx to apply new configuration
+            echo 'Nginx reloaded to apply new config.';
           "
         env:
-          EC2_USER: ec2-user # For Amazon Linux 2/2023
-          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com # Your EC2 DNS
+          EC2_USER: ${{ vars.EC2_USER }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
