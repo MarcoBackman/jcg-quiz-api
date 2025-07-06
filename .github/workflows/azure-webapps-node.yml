@@ -1,4 +1,4 @@
-name: Deploy to EC2 with PEM key and Nginx fixes
+name: Deploy to EC2 with PEM key
 
 on:
   push:
@@ -18,43 +18,42 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Add EC2 Host to known_hosts
+        # ALL these commands MUST be in the SAME 'run' block
+        # and the EC2_HOST variable must be available for this step.
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ vars.EC2_HOST }} >> ~/.ssh/known_hosts
+          # Use the environment variable here
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
         env:
+          # Define EC2_HOST here, or make sure it's a global var or job-level var
           EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com # Your EC2 DNS
 
       - name: Connect to EC2 and execute deployment commands
-        # Removed -i ~/.ssh/id_rsa
-        # Updated 'ls' path for Amazon Linux/Nginx common setup
-        # Corrected service name if Nginx is not 'nginx.service' or installed if needed
+        # No -i ~/.ssh/id_rsa needed, agent handles it
+        # -t is important for sudo
         run: |
-          # The -t option is good to keep if you have 'sudo' commands.
-          ssh -t ec2-user@${{ vars.EC2_HOST }} "
-            # Check if /var/www/html exists, if not, use /usr/share/nginx/html
-            # Or identify the correct path on your instance
+          ssh -t "$EC2_USER"@"$EC2_HOST" "
+            # Use 'sudo su -' for example if you need to switch to root for specific commands
+            # Ensure paths are correct for your instance:
             if [ -d '/var/www/html' ]; then
               ls -l /var/www/html;
             elif [ -d '/usr/share/nginx/html' ]; then
               ls -l /usr/share/nginx/html;
             else
               echo 'Neither /var/www/html nor /usr/share/nginx/html found. Please check path.';
-              exit 1; # Fail the step if path is not found
+              exit 1;
             fi;
 
-            # Check if Nginx is installed, install if not (example for Amazon Linux)
-            # You might want to do this in a separate step or only once during setup
+            # Ensure Nginx is installed and its service name is correct
             if ! command -v nginx &> /dev/null; then
-              echo 'Nginx not found, installing...';
+              echo 'Nginx not found, attempting to install (Amazon Linux/RHEL/CentOS example)...';
               sudo yum update -y && sudo yum install nginx -y;
-              sudo systemctl enable nginx; # Enable Nginx to start on boot
+              sudo systemctl enable nginx;
             fi;
 
-            # Restart Nginx service (ensure the correct service name)
-            # For Amazon Linux, it's typically 'nginx'
             sudo systemctl restart nginx;
-            echo 'Nginx restarted successfully (or confirmed)';
+            echo 'Nginx restart command sent.';
           "
         env:
           EC2_USER: ec2-user # For Amazon Linux 2/2023
