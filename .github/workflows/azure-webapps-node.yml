@@ -3,46 +3,36 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - main # Trigger on pushes to the main branch
+      - main
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest # GitHub-hosted runner
-
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4 # Action to checkout your code
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.9.0 # Action to set up SSH agent
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0 # Use the latest version
         with:
-          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }} # Use the secret you created
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Add EC2 host to known_hosts
+      - name: Add EC2 Host to known_hosts (important for first connection)
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H your-ec2-instance-ip-or-dns >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
         env:
-          SSH_AUTH_SOCK: /tmp/ssh_agent.sock # Ensure ssh-agent is used
+          # Replace with your actual EC2 IP or DNS
+          SSH_HOST: your-ec2-instance-ip-or-dns
 
-      - name: Deploy to EC2
+      - name: Connect to EC2 and execute deployment commands
+        # Add -t if your commands require a pseudo-terminal (e.g., sudo)
+        # Remove -T if your commands need a pseudo-terminal
+        # For deployment, often -T is fine or omitted, but if you need to run interactive commands, use -t
         run: |
-          # Connect to EC2 and execute deployment commands
-          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            # Your deployment commands here
-            # Example: Navigate to your application directory, pull latest changes, restart services
-            cd /var/www/your-app-directory
-            git pull origin main
-            # For Node.js:
-            # npm install
-            # pm2 restart my-app # If you're using PM2
-            # For Python/Django:
-            # pip install -r requirements.txt
-            # python manage.py migrate
-            # python manage.py collectstatic --noinput
-            # sudo systemctl restart gunicorn your-app.service # Or whatever service manager you use
-            echo "Deployment complete!"
-          EOF
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ec2-user@your-ec2-instance-ip-or-dns "ls -l /var/www/html; sudo systemctl restart nginx"
         env:
-          SSH_AUTH_SOCK: /tmp/ssh_agent.sock # Ensure ssh-agent is used
+          # Replace with your EC2 user and IP/DNS
+          EC2_USER: ec2-user
+          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
