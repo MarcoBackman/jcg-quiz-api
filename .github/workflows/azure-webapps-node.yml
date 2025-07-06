@@ -1,0 +1,48 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main # Trigger on pushes to the main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest # GitHub-hosted runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Action to checkout your code
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0 # Action to set up SSH agent
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }} # Use the secret you created
+
+      - name: Add EC2 host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock # Ensure ssh-agent is used
+
+      - name: Deploy to EC2
+        run: |
+          # Connect to EC2 and execute deployment commands
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            # Your deployment commands here
+            # Example: Navigate to your application directory, pull latest changes, restart services
+            cd /var/www/your-app-directory
+            git pull origin main
+            # For Node.js:
+            # npm install
+            # pm2 restart my-app # If you're using PM2
+            # For Python/Django:
+            # pip install -r requirements.txt
+            # python manage.py migrate
+            # python manage.py collectstatic --noinput
+            # sudo systemctl restart gunicorn your-app.service # Or whatever service manager you use
+            echo "Deployment complete!"
+          EOF
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock # Ensure ssh-agent is used
