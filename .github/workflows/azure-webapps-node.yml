@@ -19,44 +19,43 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # Use the SSH private key from GitHub Secrets
 
       - name: Add EC2 Host to known_hosts
-        # This step ensures the EC2 host's fingerprint is added to known_hosts
-        # to prevent SSH connection prompts in non-interactive environment.
         run: |
-          mkdir -p ~/.ssh # Create .ssh directory if it doesn't exist
-          # Use ssh-keyscan to fetch the host key securely.
-          # The -H flag ensures only the hostname is used in known_hosts entry.
+          mkdir -p ~/.ssh
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts # Set correct permissions for known_hosts file
+          chmod 600 ~/.ssh/known_hosts
         env:
-          # Define EC2_HOST directly in env for this step, matching your provided template
-          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com # Your EC2 DNS
+          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
 
       - name: Setup Node.js environment
-        uses: actions/setup-node@v4 # Action to set up Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '20' # Specify your NestJS project's Node.js version
+          node-version: '20'
 
       - name: Install NestJS dependencies
-        run: npm install # Install Node.js dependencies for your project
+        run: npm install
 
       - name: Build NestJS project
-        run: npm run build # Build your NestJS application (creates the 'dist' folder)
+        run: npm run build
+
+      - name: Debug AI_API_KEY (Temporary - REMOVE AFTER DEBUGGING!)
+        run: |
+          API_KEY="${{ secrets.AI_API_KEY }}"
+          echo "AI_API_KEY length: ${#API_KEY}"
+          echo "AI_API_KEY first 5 chars: ${API_KEY:0:5}..."
+          # The full key will be masked, but length and prefix can be revealing.
+          # Example of full key masking (will show ***):
+          # echo "Full AI_API_KEY: $API_KEY"
+        shell: bash
 
       - name: Deploy application files and manage with PM2
-        # This step combines SSH commands for EC2 setup and local rsync for file transfer.
         run: |
-          # Define common variables used locally and remotely within this run step
-          EC2_USER_VAL="ec2-user" # Directly define for local use
+          EC2_USER_VAL="ec2-user"
           EC2_HOST_VAL="ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com"
           
-          # --- Set the application directory name based on your project ---
-          APP_NAME="jcg-quiz-api" # <-- Updated to your repository name
-          REMOTE_APP_DIR="/home/${EC2_USER_VAL}/${APP_NAME}" # Path on EC2
+          APP_NAME="jcg-quiz-api"
+          REMOTE_APP_DIR="/home/${EC2_USER_VAL}/${APP_NAME}"
 
-          # --- Step 1: Prepare EC2 environment (install rsync, create app directory, install pm2) ---
-          # This SSH block runs commands on the EC2 instance to prepare it.
           ssh -t "${EC2_USER_VAL}"@"${EC2_HOST_VAL}" "
-            # Ensure rsync is installed
             if ! command -v rsync &> /dev/null; then
               echo 'rsync not found on EC2, installing...';
               sudo yum install rsync -y;
@@ -64,15 +63,11 @@ jobs:
               echo 'rsync is already installed on EC2.';
             fi;
 
-            # Create application directory (double quotes for variable expansion)
             mkdir -p \"${REMOTE_APP_DIR}\";
             echo \"Application directory created/ensured: ${REMOTE_APP_DIR}\";
 
-            # Install PM2 if not found
-            # Using npm install -g pm2 via SSH
             if ! command -v pm2 &> /dev/null; then
               echo 'PM2 not found on EC2, installing globally...';
-              # Ensure npm's global bin is in PATH for this session if not by default
               export PATH=\$PATH:$(npm config get prefix)/bin;
               npm install -g pm2;
               echo 'PM2 installed.';
@@ -81,35 +76,22 @@ jobs:
             fi;
           "
 
-          # --- Step 2: Copy built files from GitHub Actions runner to EC2 ---
-          # These rsync commands run *locally* on the GitHub Actions runner,
-          # connecting to EC2 via SSH. They MUST run *before* PM2 tries to start the app.
           echo "Copying built NestJS dist/ folder..."
-          # Note: rsync ./dist/ to REMOTE_APP_DIR/ will place contents of local dist into remote APP_NAME directory
           rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./dist/ "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
           
           echo "Copying package.json..."
           rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./package.json "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
           
           echo "Copying package-lock.json..."
-          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./package-lock.json "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/" # Or yarn.lock if applicable
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./package-lock.json "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
 
-          # --- Step 3: Manage NestJS application with PM2 on EC2 ---
-          # This SSH block runs commands on the EC2 instance to start/manage the app with PM2.
           ssh -t "${EC2_USER_VAL}"@"${EC2_HOST_VAL}" "
-            # Stop and delete existing PM2 process for clean restart
-            pm2 delete ${APP_NAME} || true; # <-- Updated PM2 process name
+            pm2 delete ${APP_NAME} || true;
 
-            # Navigate to app directory where files were copied
             cd \"${REMOTE_APP_DIR}\";
 
             npm install --production
 
-            # Start NestJS application with PM2 and environment variables
-            # Note: For security, sensitive keys like AI_API_KEY should ideally be
-            # injected via AWS Systems Manager Parameter Store or Secrets Manager
-            # and accessed by your app, rather than directly in PM2 commands.
-            # However, for direct passing as requested:
             pm2 start main.js --name ${APP_NAME} --interpreter node -- \
               --env PORT=3000 \
               --env CORS_ORIGIN='${{ vars.CORS_ORIGIN || 'http://localhost:8080' }}' \
@@ -118,33 +100,26 @@ jobs:
               --env AI_API_KEY='${{ secrets.AI_API_KEY }}' \
               --env AI_AGENT='${{ vars.AI_AGENT || 'gemini-2.0-flash' }}';
 
-            # Save PM2 process list and configure startup on boot
             pm2 save;
-            # This generates a systemd script to ensure PM2 processes restart after reboot
-            # Adjust the PATH if pm2 is not found by sudo, e.g., include ~/.nvm/.../bin
             GLOBAL_NPM_BIN_PATH=\$(npm config get prefix)/bin;
             sudo env PATH=\"\$PATH:\${GLOBAL_NPM_BIN_PATH}\" pm2 startup systemd -u ${EC2_USER_VAL} --hp /home/${EC2_USER_VAL};
 
-            pm2 list; # List running PM2 processes to confirm NestJS app is running
+            pm2 list;
           "
         env:
-          # Define EC2_USER and EC2_HOST directly in env for this step
-          EC2_USER: ec2-user # For Amazon Linux 2/2023
-          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com # Your EC2 DNS
-          # Default values for vars if they are not set (for safety)
+          EC2_USER: ec2-user
+          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'http://localhost:8080,http://example.com' }}
           API_PREFIX: ${{ vars.API_PREFIX || 'api' }}
           AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}
           AI_AGENT: ${{ vars.AI_AGENT || 'gemini-2.0-flash' }}
 
       - name: Configure Nginx as Reverse Proxy and Reload
-        # This step creates an Nginx config file on EC2 and reloads Nginx.
         run: |
-          # Define Nginx configuration content for NestJS reverse proxy
           NGINX_CONFIG="
             server {
                 listen 80;
-                server_name $EC2_HOST; # This one is a shell variable, so $EC2_HOST is correct
+                server_name $EC2_HOST;
 
                 location / {
                     proxy_pass http://localhost:3000;
@@ -159,15 +134,12 @@ jobs:
                 }
             }
           "
-          # Transfer config to EC2 and reload Nginx
-          # 'echo "$NGINX_CONFIG" | sudo tee ...' is used to write content with sudo privileges
           ssh -t "$EC2_USER"@"$EC2_HOST" "
             echo \"$NGINX_CONFIG\" | sudo tee /etc/nginx/conf.d/jcg-quiz-api.conf > /dev/null;
             echo 'Nginx configuration written to /etc/nginx/conf.d/jcg-quiz-api.conf';
-            sudo systemctl reload nginx; # Reload Nginx to apply new configuration
+            sudo systemctl reload nginx;
             echo 'Nginx reloaded to apply new config.';
           "
         env:
-          # Define EC2_USER and EC2_HOST directly in env for this step
           EC2_USER: ec2-user
           EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
