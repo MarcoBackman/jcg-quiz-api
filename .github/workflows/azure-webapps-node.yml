@@ -108,15 +108,18 @@ jobs:
 
             npm install --production
 
-            # Start NestJS application using the ecosystem file, explicitly passing critical env vars
-            pm2 start ecosystem.config.js --env production \
-              --update-env \
-              -- ${APP_NAME} \
-              --env CORS_ORIGIN=\"${ENV_CORS_ORIGIN}\" \
-              --env API_PREFIX=\"${ENV_API_PREFIX}\" \
-              --env AI_API_BASE_URL=\"${ENV_AI_API_BASE_URL}\" \
-              --env AI_API_KEY=\"${ENV_AI_API_KEY}\" \
-              --env AI_AGENT=\"${ENV_AI_AGENT}\" ;
+            # EXPORT ENVIRONMENT VARIABLES HERE!
+            # These will be available to the PM2 process launched below,
+            # and your ecosystem.config.js will pick them up via process.env
+            export CORS_ORIGIN=\"${ENV_CORS_ORIGIN}\";
+            export API_PREFIX=\"${ENV_API_PREFIX}\";
+            export AI_API_BASE_URL=\"${ENV_AI_API_BASE_URL}\";
+            export AI_API_KEY=\"${ENV_AI_API_KEY}\";
+            export AI_AGENT=\"${ENV_AI_AGENT}\";
+
+            # Start NestJS application using the ecosystem file.
+            # PM2 will inherit the exported environment variables.
+            pm2 start ecosystem.config.js --env production;
 
             pm2 save;
             GLOBAL_NPM_BIN_PATH=\$(npm config get prefix)/bin;
@@ -124,15 +127,6 @@ jobs:
 
             pm2 list;
           "
-        # Remove the top-level env block as variables are now explicitly passed to SSH
-        # env:
-        #   EC2_USER: ec2-user
-        #   EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
-        #   CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'http://localhost:8080,http://example.com' }}
-        #   API_PREFIX: ${{ vars.API_PREFIX || 'api' }}
-        #   AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}
-        #   AI_API_KEY: ${{ secrets.AI_API_KEY }}
-        #   AI_AGENT: ${{ vars.AI_AGENT || 'gemini-2.0-flash' }}
         
       - name: Configure Nginx as Reverse Proxy and Reload
         run: |
