@@ -92,38 +92,48 @@ jobs:
           rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./ecosystem.config.js "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
 
           # --- Manage NestJS application with PM2 on EC2 ---
+          # Define environment variables explicitly here, as they will be passed to the SSH session
+          # and then specifically to the pm2 start command.
+          ENV_CORS_ORIGIN="${{ vars.CORS_ORIGIN || 'http://localhost:8080' }}"
+          ENV_API_PREFIX="${{ vars.API_PREFIX || 'api' }}"
+          ENV_AI_API_BASE_URL="${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}"
+          ENV_AI_API_KEY="${{ secrets.AI_API_KEY }}"
+          ENV_AI_AGENT="${{ vars.AI_AGENT || 'gemini-2.0-flash' }}"
+
           ssh -t "${EC2_USER_VAL}"@"${EC2_HOST_VAL}" "
-            # IMPORTANT: Clean up any old PM2 processes aggressively to avoid stale envs
             pm2 stop ${APP_NAME} || true;
             pm2 delete ${APP_NAME} || true;
 
-            # Navigate to app directory where files were copied
             cd \"${REMOTE_APP_DIR}\";
 
             npm install --production
 
-            # Start NestJS application using the ecosystem file
-            # This is where the environment variables are passed via shell and picked up by the ecosystem file
-            pm2 start ecosystem.config.js --env production; # Use --env production if you define env_production in ecosystem
+            # Start NestJS application using the ecosystem file, explicitly passing critical env vars
+            pm2 start ecosystem.config.js --env production \
+              --update-env \
+              -- ${APP_NAME} \
+              --env CORS_ORIGIN=\"${ENV_CORS_ORIGIN}\" \
+              --env API_PREFIX=\"${ENV_API_PREFIX}\" \
+              --env AI_API_BASE_URL=\"${ENV_AI_API_BASE_URL}\" \
+              --env AI_API_KEY=\"${ENV_AI_API_KEY}\" \
+              --env AI_AGENT=\"${ENV_AI_AGENT}\" ;
 
-            # Save PM2 process list and configure startup on boot
             pm2 save;
             GLOBAL_NPM_BIN_PATH=\$(npm config get prefix)/bin;
             sudo env PATH=\"\$PATH:\${GLOBAL_NPM_BIN_PATH}\" pm2 startup systemd -u ${EC2_USER_VAL} --hp /home/${EC2_USER_VAL};
 
             pm2 list;
           "
-        env:
-          EC2_USER: ec2-user
-          EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
-          # Now, these environment variables are correctly set in the shell
-          # before pm2 starts the app via ecosystem.config.js
-          CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'http://localhost:8080,http://example.com' }}
-          API_PREFIX: ${{ vars.API_PREFIX || 'api' }}
-          AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}
-          AI_API_KEY: ${{ secrets.AI_API_KEY }} # This is passed as a shell env var
-          AI_AGENT: ${{ vars.AI_AGENT || 'gemini-2.0-flash' }}
-
+        # Remove the top-level env block as variables are now explicitly passed to SSH
+        # env:
+        #   EC2_USER: ec2-user
+        #   EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
+        #   CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'http://localhost:8080,http://example.com' }}
+        #   API_PREFIX: ${{ vars.API_PREFIX || 'api' }}
+        #   AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}
+        #   AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        #   AI_AGENT: ${{ vars.AI_AGENT || 'gemini-2.0-flash' }}
+        
       - name: Configure Nginx as Reverse Proxy and Reload
         run: |
           NGINX_CONFIG="
