@@ -1,7 +1,7 @@
 module.exports = {
   apps : [{
     name   : "jcg-quiz-api",
-    script : "./dist/main.js",
+    script : "./main.js",
     instances: 1,
     exec_mode: "fork",
     env: {
