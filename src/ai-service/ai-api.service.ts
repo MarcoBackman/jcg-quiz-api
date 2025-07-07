@@ -16,6 +16,16 @@ export class AiApiService {
     this.aiApiBaseUrl = this.serverConfig.aiApiBaseUrl;
     this.aiAgent = this.serverConfig.aiAgent;
     this.aiApiKey = this.serverConfig.aiApiKey;
+
+      // --- TEMPORARY DEBUGGING LOGS (REMOVE IN PRODUCTION) ---
+      console.log(`[AiApiService] aiApiBaseUrl: ${this.aiApiBaseUrl}`);
+      console.log(`[AiApiService] aiAgent: ${this.aiAgent}`);
+      // Log length and first few characters of the API key
+      const keyLength = this.aiApiKey ? this.aiApiKey.length : 0;
+      const keyPrefix = this.aiApiKey ? this.aiApiKey.substring(0, 5) : 'N/A';
+      console.log(`[AiApiService] AI_API_KEY length: ${keyLength}`);
+      console.log(`[AiApiService] AI_API_KEY prefix: ${keyPrefix}...`);
+      // --- END TEMPORARY DEBUGGING LOGS ---
   }
 
 
@@ -32,7 +42,7 @@ export class AiApiService {
         this.httpService.post(apiUrl, payload, {
           headers: {
             'Content-Type': 'application/json',
-            'X-goog-api-key': this.aiApiKey, // API Key in header as per curl command
+            'X-goog-api-key': this.aiApiKey,
           }
         })
       );
