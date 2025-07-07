@@ -55,6 +55,7 @@ jobs:
           APP_NAME="jcg-quiz-api"
           REMOTE_APP_DIR="/home/${EC2_USER_VAL}/${APP_NAME}"
 
+          # --- Prepare EC2 environment (install rsync, create app directory, install pm2) ---
           ssh -t "${EC2_USER_VAL}"@"${EC2_HOST_VAL}" "
             if ! command -v rsync &> /dev/null; then
               echo 'rsync not found on EC2, installing...';
@@ -76,6 +77,7 @@ jobs:
             fi;
           "
 
+          # --- Copy built files and ecosystem file from GitHub Actions runner to EC2 ---
           echo "Copying built NestJS dist/ folder..."
           rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./dist/ "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
           
@@ -85,21 +87,26 @@ jobs:
           echo "Copying package-lock.json..."
           rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./package-lock.json "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
 
+          # IMPORTANT: Copy the ecosystem.config.js file
+          echo "Copying ecosystem.config.js..."
+          rsync -avz --delete -e "ssh -o StrictHostKeyChecking=no" ./ecosystem.config.js "${EC2_USER_VAL}"@"${EC2_HOST_VAL}":"${REMOTE_APP_DIR}/"
+
+          # --- Manage NestJS application with PM2 on EC2 ---
           ssh -t "${EC2_USER_VAL}"@"${EC2_HOST_VAL}" "
+            # IMPORTANT: Clean up any old PM2 processes aggressively to avoid stale envs
+            pm2 stop ${APP_NAME} || true;
             pm2 delete ${APP_NAME} || true;
 
+            # Navigate to app directory where files were copied
             cd \"${REMOTE_APP_DIR}\";
 
             npm install --production
 
-            pm2 start main.js --name ${APP_NAME} --interpreter node -- \
-              --env PORT=3000 \
-              --env CORS_ORIGIN='${{ vars.CORS_ORIGIN || 'http://localhost:8080' }}' \
-              --env API_PREFIX='${{ vars.API_PREFIX || 'api' }}' \
-              --env AI_API_BASE_URL='${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}' \
-              --env AI_API_KEY='${{ secrets.AI_API_KEY }}' \
-              --env AI_AGENT='${{ vars.AI_AGENT || 'gemini-2.0-flash' }}';
+            # Start NestJS application using the ecosystem file
+            # This is where the environment variables are passed via shell and picked up by the ecosystem file
+            pm2 start ecosystem.config.js --env production; # Use --env production if you define env_production in ecosystem
 
+            # Save PM2 process list and configure startup on boot
             pm2 save;
             GLOBAL_NPM_BIN_PATH=\$(npm config get prefix)/bin;
             sudo env PATH=\"\$PATH:\${GLOBAL_NPM_BIN_PATH}\" pm2 startup systemd -u ${EC2_USER_VAL} --hp /home/${EC2_USER_VAL};
@@ -109,9 +116,12 @@ jobs:
         env:
           EC2_USER: ec2-user
           EC2_HOST: ec2-15-164-171-168.ap-northeast-2.compute.amazonaws.com
+          # Now, these environment variables are correctly set in the shell
+          # before pm2 starts the app via ecosystem.config.js
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN || 'http://localhost:8080,http://example.com' }}
           API_PREFIX: ${{ vars.API_PREFIX || 'api' }}
           AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }} # This is passed as a shell env var
           AI_AGENT: ${{ vars.AI_AGENT || 'gemini-2.0-flash' }}
 
       - name: Configure Nginx as Reverse Proxy and Reload
