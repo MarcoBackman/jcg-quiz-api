@@ -23,7 +23,7 @@ export class ServerConfig {
   }
 
   get aiApiBaseUrl() : string {
-    return this.nestConfigService.get<string>('AI_API_BASE_URL', 'api');
+    return this.nestConfigService.get<string>('AI_API_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/models/');
   }
 
   get aiApiKey() : string {
