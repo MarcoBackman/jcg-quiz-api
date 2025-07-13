@@ -23,11 +23,4 @@ export class GenerateQuizDto {
   @IsString()
   @ArrayMinSize(1)
   language?: string;
-
-  @ApiProperty({ description: 'Optional: Specific design pattern categories or topics to focus on.', example: ['Design Pattern'], type: [String], required: true })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @ArrayMinSize(1)
-  topic: string;
 }
