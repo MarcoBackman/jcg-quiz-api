@@ -1,15 +1,16 @@
-import { Controller, Post, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import {GenerateQuizDto} from './dp.dto';
+import { Controller, Post, Body, ValidationPipe  } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiProperty} from '@nestjs/swagger';
+import { IsEnum, IsString, IsNotEmpty } from 'class-validator';
+import {GenerateQuizDto, TopicTestDto} from './dp.dto';
 import {QuizQuestionResponse} from './dp.response';
-import {DesignPatternsService} from './dp.service';
+import {JcgQuizService} from './dp.service';
 import {JCG_TOPIC} from '../type/jcg-topic-enum';
 
 
 @ApiTags('AI - based Quiz Controller')
 @Controller()
-export class DesignPatternsController {
-  constructor(private readonly designPatternsService: DesignPatternsService) {}
+export class QuizController {
+  constructor(private readonly jchQuizService: JcgQuizService) {}
 
 
   @Post('quiz/generate-db-architecture') 
@@ -24,7 +25,7 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
@@ -45,7 +46,7 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
@@ -66,7 +67,7 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
@@ -87,7 +88,7 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
@@ -108,7 +109,7 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
@@ -129,7 +130,7 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
@@ -150,12 +151,41 @@ export class DesignPatternsController {
     @Body() generateQuizDto: GenerateQuizDto, 
   ): Promise<QuizQuestionResponse[]> { 
 
-    const quizResponse = await this.designPatternsService.generateShortAnswerQuiz(
+    const quizResponse = await this.jchQuizService.generateShortAnswerQuiz(
       generateQuizDto.numberOfQuestions,
       generateQuizDto.difficulty,
       generateQuizDto.language,
       JCG_TOPIC.TESTING_TYPES
     );
     return quizResponse;
+  }
+
+  @Post('topic-testing')
+  @ApiOperation({ summary: 'testing' })
+  @ApiResponse({
+    status: 200,
+    description: 'For testing',
+    type: [String], // Use Array<string> or [String] for Swagger
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request parameters.' })
+  // Apply ValidationPipe to automatically validate and transform the DTO
+  // You can apply it globally in main.ts or locally like this
+  async testTopicKeywords(
+    @Body(new ValidationPipe({ transform: true })) // <-- crucial part: transform: true
+    topicTestDto: TopicTestDto,
+  ): Promise<string[]> {
+    // Access the enum value directly. NestJS's ValidationPipe + class-transformer
+    // will have already converted the string 'DB_ARCHITECTURE' to JCG_TOPIC.DB_ARCHITECTURE
+    console.log(`Received topic: ${topicTestDto.topic}`);
+    console.log(`Is it DB_ARCHITECTURE enum? ${topicTestDto.topic === JCG_TOPIC.DB_ARCHITECTURE}`);
+    // You can also assert its type, though not strictly necessary after validation
+    const selectedTopic: JCG_TOPIC = topicTestDto.topic; 
+
+    // Your service can now directly use the enum value
+    const keywordResponse = await this.jchQuizService.getCetegoryAnswers(
+      selectedTopic, // Pass the enum value
+      topicTestDto.language,
+    );
+    return keywordResponse;
   }
 }

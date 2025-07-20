@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MainController } from './main-controller';
-import { DesignPatternsController } from './quiz/dp.controller';
-import { DesignPatternsService } from './quiz/dp.service';
+import { QuizController } from './quiz/dp.controller';
+import { JcgQuizService } from './quiz/dp.service';
 import { AiServiceModule } from './ai-service/ai-service.module'; // Import the new AiServiceModule
 import { ConfigModule } from './config/config.module'; 
 
@@ -10,8 +10,8 @@ import { ConfigModule } from './config/config.module';
     ConfigModule,
     AiServiceModule,
   ],
-  controllers: [DesignPatternsController, MainController],
-  providers: [DesignPatternsService],
+  controllers: [QuizController, MainController],
+  providers: [JcgQuizService],
 })
 export class AppModule {}
 

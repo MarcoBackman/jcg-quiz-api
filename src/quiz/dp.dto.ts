@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, Max, IsArray, ArrayMinSize, IsIn } from '@nestjs/class-validator';
+import { IsString, IsNotEmpty, IsEnum, IsOptional, IsNumber, Min, Max, IsArray, ArrayMinSize, IsIn } from '@nestjs/class-validator';
 import { ApiProperty } from '@nestjs/swagger'; // Optional, for Swagger documentation
+import { JCG_TOPIC } from 'src/type/jcg-topic-enum';
 
 /**
  * DTO for requesting quiz questions.
@@ -23,4 +24,25 @@ export class GenerateQuizDto {
   @IsString()
   @ArrayMinSize(1)
   language?: string;
+}
+
+export class TopicTestDto {
+  @ApiProperty({
+    enum: JCG_TOPIC, // This helps Swagger understand the allowed values
+    description: 'The topic to test keywords for (e.g., DB_ARCHITECTURE)',
+    example: JCG_TOPIC.DB_ARCHITECTURE,
+  })
+  @IsEnum(JCG_TOPIC, {
+    message: `topic must be a valid enum value from: ${Object.values(JCG_TOPIC).join(', ')}`,
+  })
+  @IsNotEmpty()
+  topic: JCG_TOPIC; // Use the enum type directly here
+
+  @ApiProperty({
+    description: 'The language for the topic keywords (e.g., "en", "ko")',
+    example: 'en',
+  })
+  @IsString()
+  @IsNotEmpty()
+  language: string;
 }
