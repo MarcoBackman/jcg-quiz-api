@@ -94,7 +94,7 @@ jobs:
           # --- Manage NestJS application with PM2 on EC2 ---
           # Define environment variables explicitly here, as they will be passed to the SSH session
           # and then specifically to the pm2 start command.
-          ENV_CORS_ORIGIN="${{ vars.CORS_ORIGIN || 'http://localhost:8080' }}"
+          ENV_CORS_ORIGIN="${{ vars.CORS_ORIGIN || 'http://localhost:8080,https://marcobackman.github.io' }}"
           ENV_API_PREFIX="${{ vars.API_PREFIX || 'api' }}"
           ENV_AI_API_BASE_URL="${{ vars.AI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/models/' }}"
           ENV_AI_API_KEY="${{ secrets.AI_API_KEY }}"
